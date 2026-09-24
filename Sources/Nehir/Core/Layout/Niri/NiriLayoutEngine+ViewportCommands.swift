@@ -321,7 +321,7 @@ extension NiriLayoutEngine {
         state.snapContext(
             columns: columns,
             gap: gaps,
-            viewportWidth: viewportWidth ?? workingFrame.width,
+            viewportWidth: viewportWidth ?? state.primarySpan(of: workingFrame),
             intentionallyDoesNotFillViewport: intentionallyDoesNotFillViewport
         )
     }

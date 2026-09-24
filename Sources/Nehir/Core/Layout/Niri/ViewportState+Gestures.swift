@@ -146,7 +146,7 @@ extension ViewportState {
             viewportSpan: viewportWidth,
             workingArea: workingArea,
             viewFrame: viewFrame,
-            orientation: .horizontal,
+            orientation: orientation,
             scale: scale
         )
 
@@ -277,7 +277,7 @@ extension ViewportState {
         var runningPosition = 0.0
         for column in columns {
             positions.append(runningPosition)
-            runningPosition += Double(column.cachedWidth) + gap
+            runningPosition += Double(primarySpan(of: column)) + gap
         }
 
         let previousActiveX = positions[previousActiveColumn]
@@ -291,7 +291,7 @@ extension ViewportState {
         let viewEnd = viewStart + viewportWidth
         let didClampToBounds = abs(viewStart - rawViewStart) > 0.001
 
-        let currentColumnWidth = max(0, Double(columns[previousActiveColumn].cachedWidth))
+        let currentColumnWidth = max(0, Double(primarySpan(of: columns[previousActiveColumn])))
         let currentColumnOverlap = visibleOverlap(
             start: previousActiveX,
             end: previousActiveX + currentColumnWidth,
@@ -309,7 +309,7 @@ extension ViewportState {
 
             for (index, column) in columns.enumerated() {
                 let columnStart = positions[index]
-                let columnWidth = max(0, Double(column.cachedWidth))
+                let columnWidth = max(0, Double(primarySpan(of: column)))
                 let columnEnd = columnStart + columnWidth
                 let overlap = visibleOverlap(
                     start: columnStart,

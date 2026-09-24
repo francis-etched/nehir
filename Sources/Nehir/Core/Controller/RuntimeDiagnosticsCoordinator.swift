@@ -628,6 +628,40 @@ final class RuntimeDiagnosticsCoordinator {
         }.joined(separator: "\n")
     }
 
+    private func splitRailDebugDump() -> String {
+        guard let controller, let engine = controller.niriEngine else { return "niri disabled" }
+        var lines = ["split-rail-diagnostics-v1"]
+        for workspaceId in controller.workspaceManager.workspaceIdsForDebug() {
+            guard let monitor = controller.workspaceManager.monitor(for: workspaceId) else { continue }
+            let orientation = controller.settings.effectiveOrientation(for: monitor)
+            let workingFrame = controller.insetWorkingFrame(for: monitor)
+            let available = orientation == .vertical ? workingFrame.width : workingFrame.height
+            for column in engine.columns(in: workspaceId) {
+                let metrics = engine.stackOverflowMetrics(
+                    windows: column.windowNodes, availableSpan: available,
+                    gaps: controller.gapSize(for: monitor), orientation: orientation
+                )
+                let eligible = column.preferredFrame.map {
+                    TabbedColumnOverlayManager.shouldShowOverlay(columnFrame: $0, visibleFrame: monitor.visibleFrame)
+                } ?? false
+                lines
+                    .append(
+                        "workspace=\(workspaceId) column=\(column.id) orientation=\(orientation) explicitTabbed=\(column.isTabbed) overflowTabbed=\(column.usesOverflowTabbedMode) required=\(metrics.requiredSpan) available=\(available) frame=\(String(describing: column.preferredFrame)) railIntersects=\(eligible) active=\(String(describing: column.activeWindow?.token))"
+                    )
+                for window in column.windowNodes {
+                    let cached = controller.workspaceManager.cachedConstraints(for: window.token, maxAge: .infinity)
+                    let inferred = controller.workspaceManager.inferredResizeMinimumSize(for: window.token)
+                    lines
+                        .append(
+                            "  token=\(window.token) effectiveMin=\(window.constraints.minSize) cachedMin=\(String(describing: cached?.minSize)) inferredMin=\(String(describing: inferred))"
+                        )
+                }
+            }
+        }
+        lines.append(controller.tabbedOverlayManager.runtimeDebugDump())
+        return lines.joined(separator: "\n")
+    }
+
     private func niriViewportDebugDump() -> String {
         guard let controller, let engine = controller.niriEngine else { return "niri disabled" }
 
@@ -832,6 +866,7 @@ final class RuntimeDiagnosticsCoordinator {
             niriViewportDebugDump(),
             "-- Niri Layout Decisions --",
             niriLayoutDecisionDebugDump(),
+            splitRailDebugDump(),
             "-- AXEventHandler --",
             "geometryRelayoutRequests=\(axEventSnapshot.geometryRelayoutRequests) scopedGeometryRelayoutRequests=\(axEventSnapshot.scopedGeometryRelayoutRequests) suppressedDuringGesture=\(axEventSnapshot.geometryRelayoutsSuppressedDuringGesture) suppressedForOwnFrameWrites=\(axEventSnapshot.geometryRelayoutsSuppressedForOwnFrameWrites)",
             "-- Create Placement Contexts --",

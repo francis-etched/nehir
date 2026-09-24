@@ -1855,6 +1855,10 @@ final class MouseEventHandler {
 
             let cumulativeX = (avgX - state.gestureStartX) * macNormalizedTouchPositionToNiriGestureUnits
             let cumulativeY = (avgY - state.gestureStartY) * macNormalizedTouchPositionToNiriGestureUnits
+            let orientation = controller.settings.effectiveOrientation(for: monitor)
+            // Viewport distances grow downwards; normalized touch Y grows upwards.
+            let cumulativePrimary = orientation == .horizontal ? cumulativeX : -cumulativeY
+            let cumulativeCross = orientation == .horizontal ? cumulativeY : cumulativeX
             let previousPhase = state.gesturePhase
             let rawDeltaX: CGFloat
 
@@ -1867,9 +1871,9 @@ final class MouseEventHandler {
                     return
                 }
 
-                guard abs(cumulativeX) > abs(cumulativeY) else {
+                guard abs(cumulativePrimary) > abs(cumulativeCross) else {
                     traceGestureSkip(
-                        reason: "nonHorizontal",
+                        reason: orientation == .horizontal ? "nonHorizontal" : "nonVertical",
                         location: location,
                         requiredFingers: requiredFingers,
                         activeTouches: activeTouchCount,
@@ -1879,15 +1883,15 @@ final class MouseEventHandler {
                     return
                 }
 
-                let overshootMagnitude = max(0.0, abs(cumulativeX) - niriTouchpadGestureRecognitionThreshold)
-                rawDeltaX = (cumulativeX < 0 ? -1.0 : 1.0) * overshootMagnitude
+                let overshootMagnitude = max(0.0, abs(cumulativePrimary) - niriTouchpadGestureRecognitionThreshold)
+                rawDeltaX = (cumulativePrimary < 0 ? -1.0 : 1.0) * overshootMagnitude
                 state.gesturePhase = .committed
                 // Retain the commit metrics so the first committed update can report
                 // how much pre-recognition movement was discarded by the dead zone.
                 state.pendingFirstUpdateAfterCommit = true
                 state.commitCumulativeX = cumulativeX
                 state.commitCumulativeY = cumulativeY
-                state.commitRawDeltaX = cumulativeX
+                state.commitRawDeltaX = cumulativePrimary
                 state.commitInputPhaseName = Self.gesturePhaseName(phase)
                 controller.diagnostics.recordRuntimeViewportTrace(
                     workspaceId: wsId,
@@ -1902,7 +1906,10 @@ final class MouseEventHandler {
                     ]
                 )
             } else {
-                rawDeltaX = (avgX - state.gestureLastAverageX) * macNormalizedTouchPositionToNiriGestureUnits
+                let delta = orientation == .horizontal
+                    ? avgX - state.gestureLastAverageX
+                    : state.gestureLastAverageY - avgY
+                rawDeltaX = delta * macNormalizedTouchPositionToNiriGestureUnits
             }
 
             state.gestureLastAverageX = avgX
@@ -1932,7 +1939,7 @@ final class MouseEventHandler {
     ) {
         guard let controller else { return }
         let insetFrame = controller.insetWorkingFrame(for: monitor)
-        let viewportWidth = insetFrame.width
+        let viewportWidth = controller.workspaceManager.niriViewportState(for: wsId).primarySpan(of: insetFrame)
         let gap = controller.gapSize(for: monitor)
         let scale = backingScale(for: monitor)
 
@@ -2133,7 +2140,7 @@ final class MouseEventHandler {
             let snapToColumn = !lockedContext.bypassSnap
             if let gesture = endState.viewOffsetPixels.gestureRef {
                 let normFactor = gesture.isTrackpad
-                    ? Double(insetFrame.width) / VIEW_GESTURE_WORKING_AREA_MOVEMENT
+                    ? Double(endState.primarySpan(of: insetFrame)) / VIEW_GESTURE_WORKING_AREA_MOVEMENT
                     : 1.0
                 let activeColumnX = Double(endState.columnX(
                     at: endState.activeColumnIndex,
@@ -2150,14 +2157,14 @@ final class MouseEventHandler {
                     ? clampedTrackpadGestureProjectedViewStart(
                         rawProjectedViewStart: rawProjectedViewStart,
                         currentViewStart: currentViewStart,
-                        viewportWidth: insetFrame.width
+                        viewportWidth: endState.primarySpan(of: insetFrame)
                     )
                     : rawProjectedViewStart
                 let projectedOffset = projectedViewStart - activeColumnX
                 let snapContext = endState.snapContext(
                     columns: columns,
                     gap: gap,
-                    viewportWidth: insetFrame.width
+                    viewportWidth: endState.primarySpan(of: insetFrame)
                 )
                 let rawClosestSnap = snapToColumn
                     ? snapContext.closest(to: CGFloat(rawProjectedViewStart))
@@ -2207,7 +2214,7 @@ final class MouseEventHandler {
                 // Derived release-projection distances so a capture can classify a
                 // multi-column release by grep alone. `wouldClamp` reports whether the
                 // configured projection clamp changed the raw projected release point.
-                let viewportWidth = Double(insetFrame.width)
+                let viewportWidth = Double(endState.primarySpan(of: insetFrame))
                 let rawProjectionDeltaFromCurrent = rawProjectedViewStart - currentViewStart
                 let rawProjectionScreens = viewportWidth > 0 ? rawProjectionDeltaFromCurrent / viewportWidth : 0
                 let projectionDeltaFromCurrent = projectedViewStart - currentViewStart
@@ -2243,7 +2250,7 @@ final class MouseEventHandler {
             endState.endGesture(
                 columns: columns,
                 gap: gap,
-                viewportWidth: insetFrame.width,
+                viewportWidth: endState.primarySpan(of: insetFrame),
                 motion: controller.motionPolicy.snapshot(),
                 isTrackpad: true,
                 snapToColumn: snapToColumn,

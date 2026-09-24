@@ -178,14 +178,19 @@ extension NiriLayoutEngine {
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
-        orientation: Monitor.Orientation = .horizontal,
+        orientation: Monitor.Orientation? = nil,
         animationConfig: SpringConfig? = nil,
         fromContainerIndex: Int? = nil,
         previousActiveContainerPosition: CGFloat? = nil,
         revealTrigger: RevealTrigger
     ) {
+        let orientation = orientation ?? monitorForWorkspace(workspaceId)?.orientation ?? state.orientation
+        state.orientation = orientation
         let containers = columns(in: workspaceId)
         guard !containers.isEmpty else { return }
+        for container in containers {
+            state.resolvePrimarySpan(of: container, in: workingFrame, gaps: gaps)
+        }
 
         guard let container = column(of: node),
               let targetIdx = columnIndex(of: container, in: workspaceId)
@@ -226,25 +231,23 @@ extension NiriLayoutEngine {
         state.activatePrevColumnOnRemoval = nil
         state.viewOffsetToRestore = nil
 
-        if orientation == .horizontal {
-            scrollToReveal(
-                columnIndex: targetIdx,
-                isFFM: false,
-                state: &state,
-                context: makeViewportSnapContext(
-                    columns: containers,
-                    state: state,
-                    workingFrame: workingFrame,
-                    gaps: gaps,
-                    viewportWidth: viewportSpan
-                ),
-                motion: motion,
-                scale: scale,
-                animationConfig: animationConfig,
-                allowFullyVisibleAutomaticRecenter: revealTrigger == .explicitNavigation,
-                trigger: revealTrigger
-            )
-        }
+        scrollToReveal(
+            columnIndex: targetIdx,
+            isFFM: false,
+            state: &state,
+            context: makeViewportSnapContext(
+                columns: containers,
+                state: state,
+                workingFrame: workingFrame,
+                gaps: gaps,
+                viewportWidth: viewportSpan
+            ),
+            motion: motion,
+            scale: scale,
+            animationConfig: animationConfig,
+            allowFullyVisibleAutomaticRecenter: revealTrigger == .explicitNavigation,
+            trigger: revealTrigger
+        )
 
         state.selectionProgress = 0.0
     }
@@ -257,8 +260,10 @@ extension NiriLayoutEngine {
         state: inout ViewportState,
         workingFrame: CGRect,
         gaps: CGFloat,
-        orientation: Monitor.Orientation = .horizontal
+        orientation: Monitor.Orientation? = nil
     ) -> NiriNode? {
+        let orientation = orientation ?? monitorForWorkspace(workspaceId)?.orientation ?? state.orientation
+        state.orientation = orientation
         switch pureLayoutFocusTarget(
             direction: direction,
             currentSelection: currentSelection,

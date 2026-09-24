@@ -244,7 +244,7 @@ final class AXManager {
 
         if !recentFrameApplyTrace.isEmpty {
             lines.append("-- recent frame apply trace --")
-            lines.append(contentsOf: recentFrameApplyTrace.suffix(80))
+            lines.append(contentsOf: recentFrameApplyTrace.suffix(2000))
         }
 
         return lines.joined(separator: "\n")
@@ -882,8 +882,8 @@ final class AXManager {
 
     func recordFrameApplyTrace(_ message: String) {
         recentFrameApplyTrace.append(Date().ISO8601Format() + " " + message)
-        if recentFrameApplyTrace.count > 200 {
-            recentFrameApplyTrace.removeFirst(recentFrameApplyTrace.count - 200)
+        if recentFrameApplyTrace.count > 2000 {
+            recentFrameApplyTrace.removeFirst(recentFrameApplyTrace.count - 2000)
         }
     }
 
@@ -958,7 +958,7 @@ final class AXManager {
 
             if let failureReason = resolvedResult.writeResult.failureReason {
                 recordFrameApplyTrace(
-                    "failed id=\(resolvedWindowId) target=\(Self.format(frame: resolvedResult.targetFrame)) observed=\(Self.format(frame: resolvedResult.writeResult.observedFrame)) hint=\(Self.format(frame: resolvedResult.currentFrameHint)) reason=\(String(describing: failureReason)) sizeError=\(resolvedResult.writeResult.sizeError.rawValue) positionError=\(resolvedResult.writeResult.positionError.rawValue) order=\(resolvedResult.writeResult.writeOrder)"
+                    "failed id=\(resolvedWindowId) target=\(Self.format(frame: resolvedResult.targetFrame)) observed=\(Self.format(frame: resolvedResult.writeResult.observedFrame)) hint=\(Self.format(frame: resolvedResult.currentFrameHint)) afterSize=\(Self.format(frame: resolvedResult.writeResult.frameAfterInitialSize)) reason=\(String(describing: failureReason)) sizeError=\(resolvedResult.writeResult.sizeError.rawValue) positionError=\(resolvedResult.writeResult.positionError.rawValue) order=\(resolvedResult.writeResult.writeOrder)"
                 )
                 LayoutTrace.log(
                     "    AX write-failed id=\(resolvedWindowId) target=\(LayoutTrace.rect(resolvedResult.targetFrame)) "

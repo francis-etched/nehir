@@ -36,6 +36,10 @@ extension NiriLayoutEngine {
 
     private func copyColumnWidthState(from sourceColumn: NiriContainer, to targetColumn: NiriContainer) {
         targetColumn.width = sourceColumn.width
+        targetColumn.height = sourceColumn.height
+        targetColumn.isFullHeight = sourceColumn.isFullHeight
+        targetColumn.savedHeight = sourceColumn.savedHeight
+        targetColumn.cachedHeight = 0
         targetColumn.presetWidthIdx = sourceColumn.presetWidthIdx
         targetColumn.isFullWidth = sourceColumn.isFullWidth
         targetColumn.savedWidth = sourceColumn.savedWidth
@@ -186,7 +190,7 @@ extension NiriLayoutEngine {
                 motion: motion,
                 state: state,
                 gaps: gaps,
-                workingAreaWidth: workingFrame.width
+                workingAreaWidth: state.primarySpan(of: workingFrame)
             )
         }
 
@@ -768,7 +772,7 @@ extension NiriLayoutEngine {
                 motion: motion,
                 state: state,
                 gaps: gaps,
-                workingAreaWidth: workingFrame.width
+                workingAreaWidth: state.primarySpan(of: workingFrame)
             )
         }
 
@@ -850,7 +854,7 @@ extension NiriLayoutEngine {
                 motion: motion,
                 state: state,
                 gaps: gaps,
-                workingAreaWidth: workingFrame.width
+                workingAreaWidth: state.primarySpan(of: workingFrame)
             )
         }
 

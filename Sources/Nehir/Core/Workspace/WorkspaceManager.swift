@@ -3564,11 +3564,14 @@ final class WorkspaceManager {
     }
 
     func niriViewportState(for workspaceId: WorkspaceDescriptor.ID) -> ViewportState {
+        let orientation = monitor(for: workspaceId).map { settings.effectiveOrientation(for: $0) } ?? .horizontal
         if var state = sessionState.workspaceSessions[workspaceId]?.niriViewportState {
+            state.orientation = orientation
             state.isViewportMutationAuditEnabled = isViewportMutationAuditEnabled
             return state
         }
         var newState = ViewportState()
+        newState.orientation = orientation
         newState.animationClock = animationClock
         newState.isViewportMutationAuditEnabled = isViewportMutationAuditEnabled
         return newState

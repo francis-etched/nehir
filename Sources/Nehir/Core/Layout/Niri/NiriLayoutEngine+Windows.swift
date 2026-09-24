@@ -100,7 +100,15 @@ extension NiriLayoutEngine {
     }
 
     private func clampColumnWidthToBounds(for node: NiriNode) {
-        guard let column = node.parent as? NiriContainer, column.cachedWidth > 0 else { return }
+        guard let column = node.parent as? NiriContainer else { return }
+        if column.cachedHeight > 0 {
+            let bounds = column.heightBounds()
+            column.cachedHeight = max(column.cachedHeight, bounds.min)
+            if let maxHeight = bounds.max {
+                column.cachedHeight = min(column.cachedHeight, maxHeight)
+            }
+        }
+        guard column.cachedWidth > 0 else { return }
 
         let bounds = column.widthBounds()
         column.cachedWidth = max(column.cachedWidth, bounds.min)
@@ -194,6 +202,7 @@ extension NiriLayoutEngine {
             if let root {
                 for col in root.columns {
                     col.cachedWidth = 0
+                    col.cachedHeight = 0
                 }
             }
         }
@@ -422,8 +431,8 @@ extension NiriLayoutEngine {
         let cols = columns(in: workspaceId)
         guard removedIdx >= 0, removedIdx < cols.count else { return TileRemovalStep() }
 
-        for col in cols where col.cachedWidth <= 0 {
-            col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gaps)
+        for col in cols {
+            state.resolvePrimarySpan(of: col, in: workingFrame, gaps: gaps)
         }
 
         let column = cols[removedIdx]

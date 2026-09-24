@@ -99,7 +99,7 @@ struct ViewportSnapContext {
         guard columns.indices.contains(columnIndex) else { return [] }
         let column = columns[columnIndex]
         let start = state.columnX(at: columnIndex, columns: columns, gap: gap)
-        let width = max(0, column.effectiveViewportWidth)
+        let width = max(0, state.primarySpan(of: column))
         guard width > 0 else { return [] }
 
         var candidates: [SnapPoint] = [
@@ -174,7 +174,7 @@ struct ViewportSnapContext {
 
         for index in columns.indices {
             let start = state.columnX(at: index, columns: columns, gap: gap)
-            let width = max(0, columns[index].effectiveViewportWidth)
+            let width = max(0, state.primarySpan(of: columns[index]))
             guard width > 0 else { continue }
             let end = start + width
             if start >= viewportStart - pixelTolerance,
@@ -194,7 +194,7 @@ struct ViewportSnapContext {
 
         let firstStart = state.columnX(at: first, columns: columns, gap: gap)
         let lastStart = state.columnX(at: last, columns: columns, gap: gap)
-        let lastEnd = lastStart + max(0, columns[last].effectiveViewportWidth)
+        let lastEnd = lastStart + max(0, state.primarySpan(of: columns[last]))
         let coveredWidth = max(0, lastEnd - firstStart)
         let tolerance = max(pixelTolerance, 2 * gap + pixelTolerance)
 
@@ -265,7 +265,7 @@ struct ViewportFittingAreas {
         case .horizontal:
             rect.minX
         case .vertical:
-            rect.minY
+            working.maxY - rect.maxY
         }
     }
 
@@ -326,14 +326,14 @@ extension ViewportState {
         var pos: CGFloat = 0
         for i in 0 ..< index {
             guard i < containers.count else { break }
-            pos += containers[i].effectiveViewportWidth + gap
+            pos += primarySpan(of: containers[i]) + gap
         }
         return pos
     }
 
     func totalSpan(containers: [NiriContainer], gap: CGFloat) -> CGFloat {
         guard !containers.isEmpty else { return 0 }
-        let sizeSum = containers.reduce(0) { $0 + $1.effectiveViewportWidth }
+        let sizeSum = containers.reduce(0) { $0 + primarySpan(of: $1) }
         let gapSum = CGFloat(max(0, containers.count - 1)) * gap
         return sizeSum + gapSum
     }
@@ -448,7 +448,7 @@ extension ViewportState {
             containers: containers,
             gap: gap
         )
-        let targetSize = containers[containerIndex].effectiveViewportWidth
+        let targetSize = primarySpan(of: containers[containerIndex])
         let mode = containers[containerIndex].effectiveSizingMode
 
         return computeModeAwareCenteredOffset(
@@ -606,8 +606,8 @@ extension ViewportState {
         guard !columns.isEmpty, viewportWidth > 0 else { return 0 ... 0 }
 
         let fraction = edgeVisibleFraction.clamped(to: 0 ... 1)
-        let firstWidth = max(0, columns.first?.effectiveViewportWidth ?? 0)
-        let lastWidth = max(0, columns.last?.effectiveViewportWidth ?? 0)
+        let firstWidth = max(0, columns.first.map { primarySpan(of: $0) } ?? 0)
+        let lastWidth = max(0, columns.last.map { primarySpan(of: $0) } ?? 0)
         let total = totalWidth(columns: columns, gap: gap)
 
         // Allow intentional persistent edge overscroll: at either farthest resting position,
@@ -682,7 +682,7 @@ extension ViewportState {
         var points: [SnapPoint] = []
         var columnX: CGFloat = 0
         for (index, column) in columns.enumerated() {
-            let width = column.effectiveViewportWidth
+            let width = primarySpan(of: column)
             guard width.isFinite, width > 0 else {
                 columnX += max(0, width.isFinite ? width : 0) + gap
                 continue
@@ -738,7 +738,7 @@ extension ViewportState {
         guard columns.indices.contains(index), viewportWidth > 0 else { return .parked(.minimum) }
 
         let columnStart = columnX(at: index, columns: columns, gap: gap)
-        let columnEnd = columnStart + columns[index].effectiveViewportWidth
+        let columnEnd = columnStart + primarySpan(of: columns[index])
         let viewportStart = viewportOffset
         let viewportEnd = viewportOffset + viewportWidth
 
@@ -765,6 +765,7 @@ extension ViewportState {
         viewFrame: CGRect? = nil,
         scale: CGFloat = 2.0
     ) -> CGFloat {
+        let viewportWidth = workingArea.map { primarySpan(of: $0) } ?? viewportWidth
         let targetOffset = computeCenteredOffset(
             containerIndex: columnIndex,
             containers: columns,
@@ -772,7 +773,7 @@ extension ViewportState {
             viewportSpan: viewportWidth,
             workingArea: workingArea,
             viewFrame: viewFrame,
-            orientation: .horizontal,
+            orientation: orientation,
             scale: scale
         )
         return boundedViewOffset(

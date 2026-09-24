@@ -72,7 +72,11 @@ extension ViewportState {
             state.viewOffsetPixels.offset(delta: Double(oldActiveColX - newActiveColX))
         }
 
-        let context = snapContext(columns: columns, gap: gap, viewportWidth: viewportWidth)
+        let context = snapContext(
+            columns: columns,
+            gap: gap,
+            viewportWidth: workingArea.map { primarySpan(of: $0) } ?? viewportWidth
+        )
         let currentViewStart = newActiveColX + viewOffsetPixels.target()
         let targetSnap = context.snapPoints(for: clampedIndex).closest(to: currentViewStart)
         let targetOffset = targetSnap.map { context.targetOffset(for: $0, in: self) }

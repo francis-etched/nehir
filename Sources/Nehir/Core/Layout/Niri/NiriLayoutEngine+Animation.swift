@@ -130,11 +130,18 @@ extension NiriLayoutEngine {
         let addedCol = cols[addedIdx]
         let activeIdx = state.activeColumnIndex
 
-        if addedCol.cachedWidth <= 0 {
-            addedCol.resolveAndCacheWidth(workingAreaWidth: workingAreaWidth, gaps: gaps)
+        switch state.orientation {
+        case .horizontal:
+            if addedCol.cachedWidth <= 0 {
+                addedCol.resolveAndCacheWidth(workingAreaWidth: workingAreaWidth, gaps: gaps)
+            }
+        case .vertical:
+            if addedCol.cachedHeight <= 0 {
+                addedCol.resolveAndCacheHeight(workingAreaHeight: workingAreaWidth, gaps: gaps)
+            }
         }
 
-        let offset = addedCol.cachedWidth + gaps
+        let offset = state.primarySpan(of: addedCol) + gaps
 
         if activeIdx <= addedIdx {
             for col in cols[(addedIdx + 1)...] {

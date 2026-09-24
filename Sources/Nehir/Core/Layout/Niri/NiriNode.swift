@@ -393,6 +393,7 @@ class NiriContainer: NiriNode {
     var cachedWidth: CGFloat = 0
 
     var loneWindowLayoutWidthOverride: CGFloat?
+    var loneWindowLayoutHeightOverride: CGFloat?
 
     var presetWidthIdx: Int?
 
@@ -609,6 +610,7 @@ class NiriContainer: NiriNode {
 
     func clearLoneWindowLayoutWidthOverride() {
         loneWindowLayoutWidthOverride = nil
+        loneWindowLayoutHeightOverride = nil
     }
 
     func resolveAndCacheHeight(workingAreaHeight: CGFloat, gaps: CGFloat) {
@@ -654,17 +656,21 @@ class NiriContainer: NiriNode {
         return windows[idx]
     }
 
-    // Storage index 0 is the visual bottom of a column; overlay index 0 is the visual top.
-    func visualTileIndex(forStorageTileIndex storageIndex: Int) -> Int? {
+    // Horizontal columns store bottom-to-top; portrait rows store left-to-right.
+    // The rail reads top-to-bottom in the corresponding visual order.
+    func visualTileIndex(
+        forStorageTileIndex storageIndex: Int,
+        orientation: Monitor.Orientation = .horizontal
+    ) -> Int? {
         let count = windowNodes.count
         guard storageIndex >= 0, storageIndex < count else { return nil }
-        return count - 1 - storageIndex
+        return orientation == .vertical ? storageIndex : count - 1 - storageIndex
     }
 
-    func storageTileIndex(forVisualTileIndex visualIndex: Int) -> Int? {
+    func storageTileIndex(forVisualTileIndex visualIndex: Int, orientation: Monitor.Orientation = .horizontal) -> Int? {
         let count = windowNodes.count
         guard visualIndex >= 0, visualIndex < count else { return nil }
-        return count - 1 - visualIndex
+        return orientation == .vertical ? visualIndex : count - 1 - visualIndex
     }
 
     var activeVisualTileIdx: Int {

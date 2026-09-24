@@ -84,7 +84,7 @@ enum HiddenWindowPlacementResolver {
         monitor: HiddenPlacementMonitorContext,
         monitors: [HiddenPlacementMonitorContext]
     ) -> CGPoint {
-        let reveal = baseReveal / max(1.0, scale)
+        let reveal = max(1.0, baseReveal / max(1.0, scale))
         // Workspace-inactive / scratchpad hides park against the PHYSICAL screen edge.
         // Only the scroll-hide `placement` path parks 1px inside the visibleFrame/Dock
         // edge; this path stays physical so a hidden window rests at the true screen
@@ -112,12 +112,16 @@ enum HiddenWindowPlacementResolver {
         // directly to an inactive workspace on another display. Try nearby vertical
         // parking lanes too, otherwise preserving that source-display Y can leave a
         // large strip visible on an adjacent monitor.
+        let visible = monitor.visibleFrame.isNull ? monitor.frame : monitor.visibleFrame
+        let maximumY = visible.maxY - size.height
+        let minimumY = min(visible.minY, maximumY)
+        // A geometrically empty lane above/below the display is not a valid AX
+        // park: macOS can clamp it onto a neighboring monitor. Keep the title bar
+        // within the owning display, including when the window is oversized.
         let yCandidates = verticalParkingCandidates(
-            for: size,
-            targetY: targetY,
-            monitor: monitor,
-            monitors: monitors
-        )
+            for: size, targetY: targetY, monitor: monitor, monitors: monitors
+        ).map { min(max($0, minimumY), maximumY) }
+
 
         var bestOrigin = origin(for: requestedSide, y: targetY)
         var bestOverlap = CGFloat.greatestFiniteMagnitude
@@ -168,6 +172,18 @@ enum HiddenWindowPlacementResolver {
         monitor: HiddenPlacementMonitorContext,
         monitors: [HiddenPlacementMonitorContext]
     ) -> HiddenWindowPlacement {
+        // macOS clamps a title bar parked above a display back onto it. Scroll
+        // direction is logical; physical parking must keep the title bar at a
+        // valid vertical position and hide horizontally, on either layout axis.
+        if orientation == .vertical {
+            let visible = monitor.visibleFrame.isNull ? monitor.frame : monitor.visibleFrame
+            return placement(
+                for: size, requestedEdge: requestedEdge,
+                orthogonalOrigin: max(visible.minY, visible.maxY - size.height),
+                baseReveal: baseReveal, scale: scale, orientation: .horizontal,
+                monitor: monitor, monitors: monitors
+            )
+        }
         // Park 1pt inside the working (visibleFrame) edge — 1px from the Dock. The
         // window rests 1px inside the workspace with the rest under the Dock + shield;
         // this is the placement AX accepts and holds. Parking at the physical screen

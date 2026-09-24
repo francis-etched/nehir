@@ -50,6 +50,7 @@ struct SingleWindowViewportGeometry {
 
     let rect: CGRect
     let centerOffset: CGFloat
+    var orientation: Monitor.Orientation = .horizontal
 
     func effectiveViewOffset(_ offset: CGFloat) -> CGFloat {
         // Render at the raw viewport offset so the lone window is responsive to scroll
@@ -68,8 +69,9 @@ struct SingleWindowViewportGeometry {
     ) -> CGRect {
         rect
             .offsetBy(
-                dx: workspaceOffset - effectiveViewOffset(viewOffset) + renderOffset.x,
-                dy: renderOffset.y
+                dx: workspaceOffset + renderOffset
+                    .x - (orientation == .horizontal ? effectiveViewOffset(viewOffset) : 0),
+                dy: renderOffset.y + (orientation == .vertical ? effectiveViewOffset(viewOffset) : 0)
             )
             .roundedToPhysicalPixels(scale: scale)
     }
@@ -194,7 +196,7 @@ extension NiriLayoutEngine {
                 renderedFullscreenRect: renderedFullscreenRect,
                 workspaceOffset: workspaceOffset,
                 scale: effectiveScale,
-                gaps: gaps.horizontal,
+                gaps: primaryGap,
                 time: time,
                 result: &frames,
                 orientation: orientation
@@ -233,7 +235,12 @@ extension NiriLayoutEngine {
         case .horizontal: containers.map { $0.cachedWidth }
         case .vertical: containers.map { $0.cachedHeight }
         }
-        let containerRenderOffsets = containers.map { $0.renderOffset(at: time) }
+        // Container move animations store a scalar in x; project it onto the
+        // scrolling axis only when producing physical window coordinates.
+        let containerRenderOffsets = containers.map {
+            let offset = $0.renderOffset(at: time)
+            return orientation == .horizontal ? offset : CGPoint(x: 0, y: -offset.x)
+        }
         let containerWindowNodes = containers.map { $0.windowNodes }
 
         var containerPositions = [CGFloat]()
@@ -330,7 +337,7 @@ extension NiriLayoutEngine {
             let height = span.roundedToPhysicalPixel(scale: scale)
             return CGRect(
                 x: workingFrame.origin.x,
-                y: workingFrame.origin.y + position,
+                y: workingFrame.maxY - position - height,
                 width: workingFrame.width,
                 height: height
             ).roundedToPhysicalPixels(scale: scale)
@@ -354,7 +361,7 @@ extension NiriLayoutEngine {
         case .vertical:
             CGPoint(
                 x: workspaceOffset + renderOffset.x,
-                y: -viewPosition + renderOffset.y
+                y: viewPosition + renderOffset.y
             )
         }
         return canonicalRect.offsetBy(dx: translation.x, dy: translation.y)
@@ -747,9 +754,39 @@ extension NiriLayoutEngine {
         in workingFrame: CGRect,
         containingFrame: CGRect? = nil,
         scale: CGFloat,
-        gaps: CGFloat
+        gaps: CGFloat,
+        orientation: Monitor.Orientation? = nil
     ) -> SingleWindowViewportGeometry {
+        let orientation = orientation ?? context.orientation
         let containingFrame = containingFrame ?? workingFrame
+        if orientation == .vertical {
+            let container = context.container
+            if container.cachedHeight <= 0 {
+                container.resolveAndCacheHeight(workingAreaHeight: workingFrame.height, gaps: gaps)
+            }
+            let constraints = context.window.constraints
+            let size = CGSize(
+                width: constraints.clampWidth(workingFrame.width),
+                height: constraints
+                    .clampHeight(workingFrame.height * CGFloat(context.maxWidthFraction.clamped(to: 0 ... 1)))
+            )
+            let clamped = clampRect(
+                CGRect(
+                    x: workingFrame.minX,
+                    y: containingFrame.minY,
+                    width: size.width,
+                    height: min(size.height, containingFrame.height)
+                ),
+                to: containingFrame
+            )
+            let overConstrained = size.width > workingFrame.width || size.height > workingFrame.height
+            let rect = (overConstrained ? clamped : CGRect(
+                x: clamped.minX, y: workingFrame.maxY - size.height, width: size.width, height: size.height
+            )).roundedToPhysicalPixels(scale: scale)
+            return SingleWindowViewportGeometry(
+                rect: rect, centerOffset: (rect.height - workingFrame.height) / 2, orientation: .vertical
+            )
+        }
         let resolvedWidth = resolvedSingleWindowWidth(for: context, in: workingFrame, gaps: gaps)
         guard resolvedWidth > 0 else {
             let rect = workingFrame.roundedToPhysicalPixels(scale: scale)
@@ -829,7 +866,9 @@ extension NiriLayoutEngine {
             scale: scale,
             gaps: gaps
         )
-        if context.container.hasManualSingleWindowWidthOverride {
+        if context.orientation == .vertical {
+            context.container.loneWindowLayoutHeightOverride = geometry.rect.height
+        } else if context.container.hasManualSingleWindowWidthOverride {
             context.container.clearLoneWindowLayoutWidthOverride()
         } else {
             context.container.loneWindowLayoutWidthOverride = geometry.rect.width
@@ -891,15 +930,19 @@ extension NiriLayoutEngine {
             in: workingFrame,
             containingFrame: containingFrame,
             scale: scale,
-            gaps: gaps
+            gaps: gaps,
+            orientation: orientation
         )
         let canonicalRect = geometry.rect
-        if context.container.hasManualSingleWindowWidthOverride {
+        if orientation == .vertical {
+            context.container.loneWindowLayoutHeightOverride = canonicalRect.height
+        } else if context.container.hasManualSingleWindowWidthOverride {
             context.container.clearLoneWindowLayoutWidthOverride()
         } else {
             context.container.loneWindowLayoutWidthOverride = canonicalRect.width
         }
-        let renderOffset = context.container.renderOffset(at: time)
+        let primaryOffset = context.container.renderOffset(at: time)
+        let renderOffset = orientation == .horizontal ? primaryOffset : CGPoint(x: 0, y: -primaryOffset.x)
         let renderedRect = geometry.renderedRect(
             viewOffset: state.viewOffsetPixels.value(at: time),
             workspaceOffset: workspaceOffset,

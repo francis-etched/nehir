@@ -106,6 +106,7 @@ extension NiriLayoutEngine {
             guard let seed = groupedPlacements.first else { continue }
 
             let column = NiriContainer()
+            initializeNewColumnWidth(column, in: workspaceId)
             applyPersistedColumnState(seed.placement.column, to: column)
             root.appendChild(column)
 

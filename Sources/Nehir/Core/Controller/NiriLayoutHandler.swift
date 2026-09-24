@@ -720,9 +720,7 @@ enum NiriWindowMoveResult {
         }
 
         for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
+            state.resolvePrimarySpan(of: col, in: pass.insetFrame, gaps: pass.gap)
         }
 
         if !removal.wasEmptyBeforeSync, !newTokens.isEmpty {
@@ -742,7 +740,7 @@ enum NiriWindowMoveResult {
             let insertedBeforeActive = newColumnData.filter { $0.colIdx <= originalActiveIdx }
             if !insertedBeforeActive.isEmpty, removal.removalResult.removedColumnIndicesBefore.isEmpty {
                 let totalInsertedWidth = insertedBeforeActive.reduce(CGFloat(0)) { total, data in
-                    total + data.col.cachedWidth + pass.gap
+                    total + state.primarySpan(of: data.col) + pass.gap
                 }
                 state.withRecordedViewportMutation(reason: "relayout.insertedColumnsBeforeActive") { state in
                     state.viewOffsetPixels.offset(delta: Double(-totalInsertedWidth))
@@ -758,7 +756,7 @@ enum NiriWindowMoveResult {
                     motion: motion,
                     state: state,
                     gaps: pass.gap,
-                    workingAreaWidth: pass.insetFrame.width
+                    workingAreaWidth: state.primarySpan(of: pass.insetFrame)
                 )
             }
         }
@@ -800,8 +798,9 @@ enum NiriWindowMoveResult {
         if usesCenteredLoneWindow, shouldResolveLoneWindowViewport {
             // Capture the lone window's previously resolved width before re-preparing so we
             // can detect a policy/size/monitor change (not just an initial setup).
-            let previousSingleWindowWidth = pass.engine.singleWindowLayoutContext(in: pass.wsId)?.container
-                .cachedWidth ?? 0
+            let previousSingleWindowWidth = pass.engine.singleWindowLayoutContext(in: pass.wsId).map {
+                state.primarySpan(of: $0.container)
+            } ?? 0
             let geometry = pass.engine.prepareSingleWindowViewport(
                 in: pass.wsId,
                 workingFrame: pass.insetFrame,
@@ -812,7 +811,8 @@ enum NiriWindowMoveResult {
             // Reset to center on initial setup, window removal, or when the lone window's
             // resolved width changed (policy/size/monitor change). Otherwise keep the
             // current offset so deliberate side-snaps survive relayouts.
-            let widthChanged = abs((geometry.map { $0.rect.width } ?? 0) - previousSingleWindowWidth) > 1
+            let widthChanged = abs((geometry.map { state.primarySpan(of: $0.rect) } ?? 0) - previousSingleWindowWidth) >
+                1
             let shouldResetSingleWindowViewport = previousSingleWindowWidth <= 0
                 || !removal.removalResult.removedTokens.isEmpty
                 || widthChanged
@@ -825,9 +825,7 @@ enum NiriWindowMoveResult {
         var viewportNeedsRecalc = removal.removalResult.viewportNeedsRecalc
 
         for col in pass.engine.columns(in: pass.wsId) {
-            if col.cachedWidth <= 0 {
-                col.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-            }
+            state.resolvePrimarySpan(of: col, in: pass.insetFrame, gaps: pass.gap)
         }
 
         // Whether anything that justifies re-revealing / re-centering the viewport
@@ -987,7 +985,7 @@ enum NiriWindowMoveResult {
                         0,
                         columns: cols,
                         gap: pass.gap,
-                        viewportWidth: pass.insetFrame.width,
+                        viewportWidth: state.primarySpan(of: pass.insetFrame),
                         motion: motion,
                         animate: false,
                         scale: pass.engine.displayScale(in: pass.wsId),
@@ -998,9 +996,7 @@ enum NiriWindowMoveResult {
             } else if let newCol = pass.engine.column(of: newNode),
                       let newColIdx = pass.engine.columnIndex(of: newCol, in: pass.wsId)
             {
-                if newCol.cachedWidth <= 0 {
-                    newCol.resolveAndCacheWidth(workingAreaWidth: pass.insetFrame.width, gaps: pass.gap)
-                }
+                state.resolvePrimarySpan(of: newCol, in: pass.insetFrame, gaps: pass.gap)
 
                 let shouldRestorePrevOffset = newColIdx == state.activeColumnIndex + 1
                 let offsetBeforeActivation = state.stationary()
@@ -1348,11 +1344,16 @@ enum NiriWindowMoveResult {
 
             guard let activeWindow = column.activeWindow else { continue }
             let activeWindowId = controller.workspaceManager.entry(for: activeWindow.handle)?.windowId
-            let activeVisualIndex = column.activeVisualTileIdx
+            let orientation = controller.settings.effectiveOrientation(for: monitor)
+            let activeVisualIndex = column.visualTileIndex(
+                forStorageTileIndex: column.activeTileIdx,
+                orientation: orientation
+            ) ?? 0
             let tabs = tabbedColumnTabs(
                 column: column,
                 windows: windows,
                 activeVisualIndex: activeVisualIndex,
+                orientation: orientation,
                 controller: controller
             )
 
@@ -1376,6 +1377,7 @@ enum NiriWindowMoveResult {
         column: NiriContainer,
         windows: [NiriWindow],
         activeVisualIndex: Int,
+        orientation: Monitor.Orientation,
         controller: WMController
     ) -> [TabbedColumnOverlayTabInfo] {
         guard !windows.isEmpty else { return [] }
@@ -1383,7 +1385,7 @@ enum NiriWindowMoveResult {
         var tabs: [TabbedColumnOverlayTabInfo] = []
         tabs.reserveCapacity(windows.count)
         for visualIndex in 0 ..< windows.count {
-            guard let storageIndex = column.storageTileIndex(forVisualTileIndex: visualIndex),
+            guard let storageIndex = column.storageTileIndex(forVisualTileIndex: visualIndex, orientation: orientation),
                   windows.indices.contains(storageIndex)
             else {
                 continue
@@ -1414,8 +1416,11 @@ enum NiriWindowMoveResult {
         guard let controller, let engine = controller.niriEngine else { return }
         guard let column = engine.columns(in: workspaceId).first(where: { $0.id == columnId }) else { return }
 
+        let orientation = controller.workspaceManager.monitor(for: workspaceId)
+            .map { controller.settings.effectiveOrientation(for: $0) }
+            ?? controller.workspaceManager.niriViewportState(for: workspaceId).orientation
         let windows = column.windowNodes
-        guard let storageIndex = column.storageTileIndex(forVisualTileIndex: visualIndex),
+        guard let storageIndex = column.storageTileIndex(forVisualTileIndex: visualIndex, orientation: orientation),
               windows.indices.contains(storageIndex)
         else {
             return
@@ -1518,8 +1523,8 @@ enum NiriWindowMoveResult {
         let gap = controller.gapSize(for: monitor)
         let workingFrame = controller.insetWorkingFrame(for: monitor)
 
-        for col in engine.columns(in: wsId) where col.cachedWidth <= 0 {
-            col.resolveAndCacheWidth(workingAreaWidth: workingFrame.width, gaps: gap)
+        for col in engine.columns(in: wsId) {
+            state.resolvePrimarySpan(of: col, in: workingFrame, gaps: gap)
         }
 
         let resolvedTarget = engine.focusTarget(
@@ -1529,7 +1534,8 @@ enum NiriWindowMoveResult {
             motion: controller.motionPolicy.snapshot(),
             state: &state,
             workingFrame: workingFrame,
-            gaps: gap
+            gaps: gap,
+            orientation: state.orientation
         )
         if let newNode = resolvedTarget {
             activateNode(

@@ -164,6 +164,33 @@ enum ViewOffset {
 }
 
 struct ViewportState {
+    // Refreshed from the workspace's monitor when obtaining live state. All
+    // offsets are distances along this axis, including snapshots used by plans.
+    var orientation: Monitor.Orientation = .horizontal
+
+    func primarySpan(of rect: CGRect) -> CGFloat {
+        orientation == .horizontal ? rect.width : rect.height
+    }
+
+    func primarySpan(of container: NiriContainer) -> CGFloat {
+        orientation == .horizontal
+            ? container.effectiveViewportWidth
+            : container.loneWindowLayoutHeightOverride ?? container.cachedHeight
+    }
+
+    func resolvePrimarySpan(of container: NiriContainer, in frame: CGRect, gaps: CGFloat) {
+        switch orientation {
+        case .horizontal:
+            if container.cachedWidth <= 0 {
+                container.resolveAndCacheWidth(workingAreaWidth: frame.width, gaps: gaps)
+            }
+        case .vertical:
+            if container.cachedHeight <= 0 {
+                container.resolveAndCacheHeight(workingAreaHeight: frame.height, gaps: gaps)
+            }
+        }
+    }
+
     struct ViewportMutationSnapshot: Equatable {
         let activeColumnIndex: Int
         let currentOffset: CGFloat

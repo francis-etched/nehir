@@ -305,6 +305,12 @@ final class TabbedColumnOverlayManager {
 
     private var overlays: [TabbedColumnOverlayKey: TabbedColumnOverlayWindow] = [:]
 
+    func runtimeDebugDump() -> String {
+        (["railPanels=\(overlays.count)"] + overlays.map { key, panel in
+            "rail workspace=\(key.workspaceId) column=\(key.columnId) \(panel.runtimeDebugLine)"
+        }.sorted()).joined(separator: "\n")
+    }
+
     func updateOverlays(_ infos: [TabbedColumnOverlayInfo], forceOrdering: Bool = false) {
         recordUpdateForTests(infos: infos, scopedWorkspaceId: nil, forceOrdering: forceOrdering)
         guard !disablesWindowUpdatesForTests else { return }
@@ -491,6 +497,21 @@ private final class TabbedColumnOverlayWindow: NSPanel {
                 overlayView?.needsDisplay = true
             }
         }
+    }
+
+    var runtimeDebugLine: String {
+        let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        let panelBounds = ScreenCoordinateSpace.toWindowServer(rect: frame)
+        var above: [String] = []
+        for info in windows {
+            let wid = (info[kCGWindowNumber as String] as? NSNumber)?.intValue ?? 0
+            if wid == windowNumber { break }
+            guard let bounds = info[kCGWindowBounds as String] as? [String: Any],
+                  let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
+                  rect.intersects(panelBounds) else { continue }
+            above.append("\(wid):\(rect):layer=\(String(describing: info[kCGWindowLayer as String]))")
+        }
+        return "aboveIntersecting=\(above) window=\(windowNumber) frame=\(frame) appKitVisible=\(isVisible) orderedIn=\(String(describing: SkyLight.shared.isWindowOrderedIn(UInt32(windowNumber)))) level=\(level.rawValue) activeWindow=\(String(describing: lastActiveWindowId))"
     }
 
     override func close() {

@@ -264,9 +264,13 @@ final class NiriLayoutEngine {
     func initializeNewColumnWidth(_ column: NiriContainer, in workspaceId: WorkspaceDescriptor.ID) {
         let resolvedWidth = resolvedColumnResetWidth(in: workspaceId)
         column.width = .proportion(resolvedWidth.proportion)
+        column.height = .proportion(resolvedWidth.proportion)
         column.presetWidthIdx = resolvedWidth.presetWidthIdx
 
         column.cachedWidth = 0
+        column.cachedHeight = 0
+        column.isFullHeight = false
+        column.savedHeight = nil
         column.isFullWidth = false
         column.savedWidth = nil
         column.hasManualSingleWindowWidthOverride = false
@@ -294,6 +298,7 @@ final class NiriLayoutEngine {
         let container: NiriContainer
         let window: NiriWindow
         let maxWidthFraction: Double
+        var orientation: Monitor.Orientation = .horizontal
     }
 
     func singleWindowLayoutContext(in workspaceId: WorkspaceDescriptor.ID) -> SingleWindowLayoutContext? {
@@ -321,7 +326,8 @@ final class NiriLayoutEngine {
         return SingleWindowLayoutContext(
             container: column,
             window: window,
-            maxWidthFraction: maxWidthFraction
+            maxWidthFraction: maxWidthFraction,
+            orientation: monitorForWorkspace(workspaceId)?.orientation ?? .horizontal
         )
     }
 
@@ -385,9 +391,13 @@ final class NiriLayoutEngine {
     }
 
     func columnX(at index: Int, columns: [NiriContainer], gaps: CGFloat) -> CGFloat {
+        let orientation = columns.first?.findRoot()
+            .flatMap { monitorForWorkspace($0.workspaceId)?.orientation } ?? .horizontal
+        var state = ViewportState()
+        state.orientation = orientation
         var x: CGFloat = 0
         for i in 0 ..< index where i < columns.count {
-            x += columns[i].cachedWidth + gaps
+            x += state.primarySpan(of: columns[i]) + gaps
         }
         return x
     }

@@ -45,6 +45,7 @@ typealias AXFrameRequestId = UInt64
 enum AXFrameWriteOrder {
     case sizeThenPosition
     case positionThenSize
+    case shrinkThenPositionThenSize
 }
 
 enum AXFrameWriteFailureReason: Equatable, Sendable {
@@ -67,6 +68,8 @@ struct AXFrameWriteResult: Equatable, Sendable {
     let sizeError: AXError
     let positionError: AXError
     let failureReason: AXFrameWriteFailureReason?
+
+    var frameAfterInitialSize: CGRect? = nil
 
     var isVerifiedSuccess: Bool {
         failureReason == nil
@@ -406,10 +409,30 @@ enum AXWindowService {
         guard let currentFrame else {
             return .sizeThenPosition
         }
+        let grows = targetFrame.width > currentFrame.width + 0.5
+            || targetFrame.height > currentFrame.height + 0.5
+        let shrinks = targetFrame.width < currentFrame.width - 0.5
+            || targetFrame.height < currentFrame.height - 0.5
+        if grows, shrinks {
+            return .shrinkThenPositionThenSize
+        }
         if targetFrame.width > currentFrame.width + 0.5 || targetFrame.height > currentFrame.height + 0.5 {
             return .positionThenSize
         }
         return .sizeThenPosition
+    }
+
+    static func resizeStagingFrame(currentFrame: CGRect, targetFrame: CGRect, visibleFrame: CGRect) -> CGRect? {
+        guard targetFrame.width < currentFrame.width || targetFrame.height < currentFrame.height,
+              visibleFrame.contains(targetFrame),
+              currentFrame.width <= visibleFrame.width,
+              currentFrame.height <= visibleFrame.height,
+              !visibleFrame.contains(currentFrame) else { return nil }
+        return CGRect(
+            x: min(max(targetFrame.minX, visibleFrame.minX), visibleFrame.maxX - currentFrame.width),
+            y: min(max(targetFrame.minY, visibleFrame.minY), visibleFrame.maxY - currentFrame.height),
+            width: currentFrame.width, height: currentFrame.height
+        )
     }
 
     static func setFrame(
@@ -421,8 +444,9 @@ enum AXWindowService {
             return setFrameResultProviderForTests(window, frame, currentFrameHint)
         }
 
+        let currentFrame = currentFrameHint ?? (try? self.frame(window))
         let writeOrder = frameWriteOrder(
-            currentFrame: currentFrameHint ?? (try? self.frame(window)),
+            currentFrame: currentFrame,
             targetFrame: frame
         )
         let axFrame = convertToAX(frame)
@@ -438,11 +462,47 @@ enum AXWindowService {
             )
         }
 
+        // A parked or partially clipped window may refuse shrinking even when
+        // its final rectangle fits. Bring the existing footprint onto the target
+        // display before shrinking, then apply the requested final position.
+        if let currentFrame,
+           let screen = NSScreen.screens.first(where: { $0.visibleFrame.contains(frame) }),
+           let stagingFrame = resizeStagingFrame(
+               currentFrame: currentFrame, targetFrame: frame, visibleFrame: screen.visibleFrame
+           )
+        {
+            var stagingPosition = convertToAX(stagingFrame).origin
+            if let value = AXValueCreate(.cgPoint, &stagingPosition) {
+                AXUIElementSetAttributeValue(window.element, kAXPositionAttribute as CFString, value)
+            }
+        }
+
         let positionError: AXError
         let sizeError: AXError
+        var frameAfterInitialSize: CGRect?
         switch writeOrder {
+        case .shrinkThenPositionThenSize:
+            // A landscape-to-portrait move can shrink width while growing height.
+            // Shrink on the source display before moving, then grow on the destination;
+            // otherwise the old footprint can keep the resize constrained to the source.
+            if let currentFrame {
+                var intermediateSize = CGSize(
+                    width: min(currentFrame.width, frame.width),
+                    height: min(currentFrame.height, frame.height)
+                )
+                if let intermediateValue = AXValueCreate(.cgSize, &intermediateSize) {
+                    AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, intermediateValue)
+                }
+            }
+            positionError = AXUIElementSetAttributeValue(
+                window.element,
+                kAXPositionAttribute as CFString,
+                positionValue
+            )
+            sizeError = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
         case .sizeThenPosition:
             sizeError = AXUIElementSetAttributeValue(window.element, kAXSizeAttribute as CFString, sizeValue)
+            frameAfterInitialSize = try? self.frame(window)
             positionError = AXUIElementSetAttributeValue(
                 window.element,
                 kAXPositionAttribute as CFString,
@@ -469,7 +529,7 @@ enum AXWindowService {
             .readbackFailed
         }
 
-        return AXFrameWriteResult(
+        var result = AXFrameWriteResult(
             targetFrame: frame,
             observedFrame: observedFrame,
             writeOrder: writeOrder,
@@ -477,6 +537,8 @@ enum AXWindowService {
             positionError: positionError,
             failureReason: failureReason
         )
+        result.frameAfterInitialSize = frameAfterInitialSize
+        return result
     }
 
     private static func convertFromAX(_ rect: CGRect) -> CGRect {

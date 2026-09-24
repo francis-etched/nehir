@@ -4194,6 +4194,17 @@ import QuartzCore
             )
         }
 
+        // A clipped scrolling frame can be clamped by the display boundary. That
+        // refusal describes this placement, not the application's minimum size.
+        // Let the settled, fully on-display layout supply minimum-size evidence.
+        guard let monitor = controller.workspaceManager.monitor(for: workspaceId),
+              monitor.visibleFrame.insetBy(dx: -1, dy: -1).contains(result.targetFrame)
+        else {
+            controller.axManager.recordFrameApplyTrace(
+                "resizeMin.skipClippedPlacement id=\(entry.windowId) target=\(LayoutTrace.rect(result.targetFrame))"
+            )
+            return
+        }
         guard let minimumSize = inferredResizeMinimumSize(for: result, entry: entry) else { return }
 
         let previousMinimumSize = controller.workspaceManager.inferredResizeMinimumSize(for: entry.token)
